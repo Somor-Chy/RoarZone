@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4   # ✅ updated এখানে
+      - uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -18,13 +18,15 @@ jobs:
           php-version: 8.1
 
       - name: Generate Playlist
-        run: |
-          php generate.php > playlist.m3u
+        run: php generate.php
 
-      - name: Commit Playlist
+      - name: Sync with remote (safe)
         run: |
           git config --global user.name "bot"
           git config --global user.email "bot@users.noreply.github.com"
+
+          git pull origin main --rebase || true
+
           git add playlist.m3u
           git commit -m "update playlist" || echo "no changes"
           git push
