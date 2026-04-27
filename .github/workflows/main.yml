@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4   # ✅ updated এখানে
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -18,7 +18,8 @@ jobs:
           php-version: 8.1
 
       - name: Generate Playlist
-        run: php generate.php > playlist.m3u
+        run: |
+          php generate.php > playlist.m3u
 
       - name: Commit Playlist
         run: |
