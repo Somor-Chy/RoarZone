@@ -18,9 +18,11 @@ jobs:
           php-version: 8.1
 
       - name: Generate Playlist
-        run: php generate.php
+        run: |
+          php generate.php
+          cat playlist.m3u
 
-      - name: Sync with remote (safe)
+      - name: Commit Playlist
         run: |
           git config --global user.name "bot"
           git config --global user.email "bot@users.noreply.github.com"
@@ -29,4 +31,5 @@ jobs:
 
           git add playlist.m3u
           git commit -m "update playlist" || echo "no changes"
+
           git push
