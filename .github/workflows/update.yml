@@ -20,7 +20,10 @@ jobs:
       - name: Generate Playlist
         run: |
           php generate.php
-          cat playlist.m3u
+          echo "========== FILE LIST =========="
+          ls -la
+          echo "========== PLAYLIST =========="
+          cat playlist.m3u || true
 
       - name: Commit Playlist
         run: |
