@@ -1,5 +1,5 @@
 <?php
-error_reporting(0);
+error_reporting(E_ALL);
 
 // ================= CONFIG =================
 $proxy = "64.227.131.240:1080";
@@ -8,7 +8,7 @@ $proxy = "64.227.131.240:1080";
 $channels_api = "https://tv.roarzone.net/api/android/channels.php";
 $stream_api_base = "https://tv.roarzone.net/api/android/stream.php?channel=";
 
-// ================= COMMON HEADERS =================
+// ================= HEADERS =================
 $headers = [
     "User-Agent: okhttp/4.9.0",
     "Accept: application/json",
@@ -16,28 +16,65 @@ $headers = [
     "Accept-Encoding: gzip"
 ];
 
+// ================= CURL FUNCTION =================
+function createCurl($url, $headers, $proxy = null)
+{
+    $ch = curl_init();
+
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_ENCODING => ""
+    ]);
+
+    if ($proxy) {
+        curl_setopt($ch, CURLOPT_PROXY, $proxy);
+        curl_setopt($ch, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5);
+    }
+
+    return $ch;
+}
+
 // ================= FETCH CHANNELS =================
-$ch = curl_init();
-
-curl_setopt($ch, CURLOPT_URL, $channels_api);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_TIMEOUT, 20);
-curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-curl_setopt($ch, CURLOPT_ENCODING, "");
-
-// SOCKS5 PROXY
-curl_setopt($ch, CURLOPT_PROXY, $proxy);
-curl_setopt($ch, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5);
+$ch = createCurl($channels_api, $headers, $proxy);
 
 $response = curl_exec($ch);
+
+if (!$response) {
+
+    $output = "#EXTM3U\n";
+    $output .= "# CHANNEL API ERROR\n";
+    $output .= "# " . curl_error($ch) . "\n";
+
+    file_put_contents("playlist.m3u", $output);
+
+    exit;
+}
 
 curl_close($ch);
 
 $data = json_decode($response, true);
+
+if (!$data) {
+
+    $output = "#EXTM3U\n";
+    $output .= "# INVALID CHANNEL JSON\n";
+
+    file_put_contents("playlist.m3u", $output);
+
+    exit;
+}
+
 $channels = $data['data'] ?? $data;
 
 if (!is_array($channels)) {
-    file_put_contents("playlist.m3u", "#EXTM3U\n");
+
+    file_put_contents("playlist.m3u", "#EXTM3U\n# INVALID CHANNEL DATA\n");
+
     exit;
 }
 
@@ -47,27 +84,19 @@ $handles = [];
 
 foreach ($channels as $i => $c) {
 
-    if (empty($c['stream_name'])) continue;
+    if (empty($c['stream_name'])) {
+        continue;
+    }
 
     $url = $stream_api_base . $c['stream_name'];
 
-    $mh = curl_init();
-
-    curl_setopt($mh, CURLOPT_URL, $url);
-    curl_setopt($mh, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($mh, CURLOPT_TIMEOUT, 20);
-    curl_setopt($mh, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($mh, CURLOPT_ENCODING, "");
-
-    // SOCKS5
-    curl_setopt($mh, CURLOPT_PROXY, $proxy);
-    curl_setopt($mh, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5);
+    $mh = createCurl($url, $headers, $proxy);
 
     curl_multi_add_handle($multi, $mh);
 
-    $handles[$i] = [
-        'ch' => $mh,
-        'data' => $c
+    $handles[] = [
+        'handle' => $mh,
+        'channel' => $c
     ];
 }
 
@@ -82,20 +111,25 @@ do {
 // ================= BUILD PLAYLIST =================
 $output = "#EXTM3U\n\n";
 
+$total = 0;
+
 foreach ($handles as $h) {
 
-    $res = curl_multi_getcontent($h['ch']);
+    $res = curl_multi_getcontent($h['handle']);
 
-    curl_multi_remove_handle($multi, $h['ch']);
-    curl_close($h['ch']);
+    curl_multi_remove_handle($multi, $h['handle']);
 
-    if (!$res) continue;
+    if (!$res) {
+        continue;
+    }
 
     $json = json_decode($res, true);
 
-    if (!isset($json['url'])) continue;
+    if (!isset($json['url'])) {
+        continue;
+    }
 
-    $c = $h['data'];
+    $c = $h['channel'];
 
     $id = $c['id'] ?? '';
     $name = $c['name'] ?? 'Unknown';
@@ -106,12 +140,28 @@ foreach ($handles as $h) {
 
     $output .= "#EXTINF:-1 tvg-id=\"$id\" tvg-logo=\"$logo\" group-title=\"$group\",$name\n";
     $output .= "$stream\n\n";
+
+    $total++;
 }
 
 curl_multi_close($multi);
 
+// ================= EMPTY CHECK =================
+if ($total == 0) {
+
+    $output .= "# NO STREAM FOUND\n";
+}
+
 // ================= SAVE =================
 file_put_contents("playlist.m3u", $output);
 
-echo "DONE\n";
+// ================= DEBUG =================
+echo "TOTAL CHANNELS: " . count($channels) . PHP_EOL;
+echo "SUCCESS STREAMS: " . $total . PHP_EOL;
+
+if (file_exists("playlist.m3u")) {
+    echo "playlist.m3u CREATED" . PHP_EOL;
+} else {
+    echo "FAILED TO CREATE playlist.m3u" . PHP_EOL;
+}
 ?>
