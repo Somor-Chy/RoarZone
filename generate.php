@@ -1,17 +1,36 @@
 <?php
 error_reporting(0);
 
+// ================= CONFIG =================
+$proxy = "64.227.131.240:1080";
+
 // ================= API =================
 $channels_api = "https://tv.roarzone.net/api/android/channels.php";
 $stream_api_base = "https://tv.roarzone.net/api/android/stream.php?channel=";
 
-// ================= GET CHANNELS =================
-$ch = curl_init($channels_api);
+// ================= COMMON HEADERS =================
+$headers = [
+    "User-Agent: okhttp/4.9.0",
+    "Accept: application/json",
+    "Connection: Keep-Alive",
+    "Accept-Encoding: gzip"
+];
+
+// ================= FETCH CHANNELS =================
+$ch = curl_init();
+
+curl_setopt($ch, CURLOPT_URL, $channels_api);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 curl_setopt($ch, CURLOPT_ENCODING, "");
 
+// SOCKS5 PROXY
+curl_setopt($ch, CURLOPT_PROXY, $proxy);
+curl_setopt($ch, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5);
+
 $response = curl_exec($ch);
+
 curl_close($ch);
 
 $data = json_decode($response, true);
@@ -22,7 +41,7 @@ if (!is_array($channels)) {
     exit;
 }
 
-// ================= MULTI CURL STREAM =================
+// ================= MULTI CURL =================
 $multi = curl_multi_init();
 $handles = [];
 
@@ -32,21 +51,29 @@ foreach ($channels as $i => $c) {
 
     $url = $stream_api_base . $c['stream_name'];
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    $mh = curl_init();
 
-    curl_multi_add_handle($multi, $ch);
+    curl_setopt($mh, CURLOPT_URL, $url);
+    curl_setopt($mh, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($mh, CURLOPT_TIMEOUT, 20);
+    curl_setopt($mh, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($mh, CURLOPT_ENCODING, "");
+
+    // SOCKS5
+    curl_setopt($mh, CURLOPT_PROXY, $proxy);
+    curl_setopt($mh, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5);
+
+    curl_multi_add_handle($multi, $mh);
 
     $handles[$i] = [
-        'ch' => $ch,
+        'ch' => $mh,
         'data' => $c
     ];
 }
 
-// run all
+// ================= EXECUTE =================
 $running = null;
+
 do {
     curl_multi_exec($multi, $running);
     curl_multi_select($multi);
@@ -54,8 +81,6 @@ do {
 
 // ================= BUILD PLAYLIST =================
 $output = "#EXTM3U\n\n";
-
-$count = 0;
 
 foreach ($handles as $h) {
 
@@ -67,6 +92,7 @@ foreach ($handles as $h) {
     if (!$res) continue;
 
     $json = json_decode($res, true);
+
     if (!isset($json['url'])) continue;
 
     $c = $h['data'];
@@ -75,16 +101,17 @@ foreach ($handles as $h) {
     $name = $c['name'] ?? 'Unknown';
     $logo = $c['logo'] ?? '';
     $group = $c['group'] ?? 'General';
-    $url = $json['url'];
+
+    $stream = $json['url'];
 
     $output .= "#EXTINF:-1 tvg-id=\"$id\" tvg-logo=\"$logo\" group-title=\"$group\",$name\n";
-    $output .= "$url\n\n";
-
-    $count++;
+    $output .= "$stream\n\n";
 }
 
 curl_multi_close($multi);
 
 // ================= SAVE =================
 file_put_contents("playlist.m3u", $output);
+
+echo "DONE\n";
 ?>
