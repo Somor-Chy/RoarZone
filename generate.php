@@ -1,9 +1,6 @@
 <?php
 error_reporting(E_ALL);
 
-// ================= CONFIG =================
-$proxy = "64.227.131.240:1080";
-
 // ================= API =================
 $channels_api = "https://tv.roarzone.net/api/android/channels.php";
 $stream_api_base = "https://tv.roarzone.net/api/android/stream.php?channel=";
@@ -17,7 +14,7 @@ $headers = [
 ];
 
 // ================= CURL FUNCTION =================
-function createCurl($url, $headers, $proxy = null)
+function createCurl($url, $headers)
 {
     $ch = curl_init();
 
@@ -31,18 +28,16 @@ function createCurl($url, $headers, $proxy = null)
         CURLOPT_ENCODING => ""
     ]);
 
-    if ($proxy) {
-        curl_setopt($ch, CURLOPT_PROXY, $proxy);
-        curl_setopt($ch, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5);
-    }
-
     return $ch;
 }
 
 // ================= FETCH CHANNELS =================
-$ch = createCurl($channels_api, $headers, $proxy);
+$ch = createCurl($channels_api, $headers);
 
 $response = curl_exec($ch);
+
+echo "========== RAW RESPONSE ==========\n";
+echo $response . "\n\n";
 
 if (!$response) {
 
@@ -57,14 +52,15 @@ if (!$response) {
 
 curl_close($ch);
 
+// ================= JSON =================
 $data = json_decode($response, true);
 
 if (!$data) {
 
-    $output = "#EXTM3U\n";
-    $output .= "# INVALID CHANNEL JSON\n";
-
-    file_put_contents("playlist.m3u", $output);
+    file_put_contents(
+        "playlist.m3u",
+        "#EXTM3U\n# INVALID CHANNEL JSON\n"
+    );
 
     exit;
 }
@@ -73,7 +69,10 @@ $channels = $data['data'] ?? $data;
 
 if (!is_array($channels)) {
 
-    file_put_contents("playlist.m3u", "#EXTM3U\n# INVALID CHANNEL DATA\n");
+    file_put_contents(
+        "playlist.m3u",
+        "#EXTM3U\n# INVALID CHANNEL DATA\n"
+    );
 
     exit;
 }
@@ -90,7 +89,7 @@ foreach ($channels as $i => $c) {
 
     $url = $stream_api_base . $c['stream_name'];
 
-    $mh = createCurl($url, $headers, $proxy);
+    $mh = createCurl($url, $headers);
 
     curl_multi_add_handle($multi, $mh);
 
@@ -148,7 +147,6 @@ curl_multi_close($multi);
 
 // ================= EMPTY CHECK =================
 if ($total == 0) {
-
     $output .= "# NO STREAM FOUND\n";
 }
 
@@ -156,12 +154,13 @@ if ($total == 0) {
 file_put_contents("playlist.m3u", $output);
 
 // ================= DEBUG =================
-echo "TOTAL CHANNELS: " . count($channels) . PHP_EOL;
-echo "SUCCESS STREAMS: " . $total . PHP_EOL;
+echo "========== DEBUG ==========\n";
+echo "TOTAL CHANNELS: " . count($channels) . "\n";
+echo "SUCCESS STREAMS: " . $total . "\n";
 
 if (file_exists("playlist.m3u")) {
-    echo "playlist.m3u CREATED" . PHP_EOL;
+    echo "playlist.m3u CREATED\n";
 } else {
-    echo "FAILED TO CREATE playlist.m3u" . PHP_EOL;
+    echo "FAILED TO CREATE playlist.m3u\n";
 }
 ?>
